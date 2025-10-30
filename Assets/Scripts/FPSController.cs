@@ -14,6 +14,7 @@ public class FPSController : MonoBehaviour
     [SerializeField] private Transform playerCamera;
     public float mouseSensitivity = 2.0f;
     public float verticalLookLimit = 80.0f;
+    
 
     [Header("Physics")]
     public float gravity = 20.0f;
@@ -29,6 +30,13 @@ public class FPSController : MonoBehaviour
     private InputAction lookAction;
     private InputAction jumpAction;
     private InputAction sprintAction;
+    private InputAction interactAction;
+    public Camera playerCameraComponent;
+
+    [Header("Interaction")]
+    public float interactDistance = 3.0f;
+
+    public bool isPlayingArcade = false;
 
     // ใช้ Awake แทน Start สำหรับการตั้งค่า Input
     void Awake()
@@ -36,19 +44,21 @@ public class FPSController : MonoBehaviour
         controller = GetComponent<CharacterController>();
         playerInput = GetComponent<PlayerInput>(); // ดึง PlayerInput component
 
-        // 4. ค้นหา Actions จากชื่อที่เราตั้งไว้ (ต้องตรงกับใน Asset)
+        // ค้นหา Actions จากชื่อที่เราตั้งไว้ (ต้องตรงกับใน Asset)
         moveAction = playerInput.actions["Move"];
         lookAction = playerInput.actions["Look"];
         jumpAction = playerInput.actions["Jump"];
         sprintAction = playerInput.actions["Sprint"];
 
+        interactAction = playerInput.actions["Interact"];
+
         // ซ่อนและล็อคเมาส์
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
 
-        if (playerCamera == null)
+        if (playerCameraComponent == null)
         {
-            playerCamera = GetComponentInChildren<Camera>().transform;
+            playerCameraComponent = GetComponentInChildren<Camera>();
         }
     }
 
@@ -59,6 +69,7 @@ public class FPSController : MonoBehaviour
         lookAction.Enable();
         jumpAction.Enable();
         sprintAction.Enable();
+        interactAction.Enable();
     }
 
     private void OnDisable()
@@ -67,15 +78,25 @@ public class FPSController : MonoBehaviour
         lookAction.Disable();
         jumpAction.Disable();
         sprintAction.Disable();
+        interactAction.Disable();
     }
 
     void Update()
     {
-        // โค้ดที่เหลือเหมือนเดิม แต่จะไปดึงค่าจาก Actions แทน
-        HandleMovement();
-        HandleLook();
+        //ถ้ากำลังเล่นเกม 2D, ไม่ต้องทำอะไรเลย (หยุด FPS Controller)
+        if (isPlayingArcade)
+        {
+            // เราจะถูกควบคุมโดยสคริปต์อื่น
+            return;
+        }
+        // ถ้าไม่ได้เล่นเกม 2D ก็ควบคุม 3D ปกติ ดึงค่าจาก Actions
+        else
+        {
+            HandleMovement();
+            HandleLook();
+            HandleInteract();
+        }
     }
-
     private void HandleMovement()
     {
         bool isGrounded = controller.isGrounded;
@@ -126,5 +147,34 @@ public class FPSController : MonoBehaviour
         xRotation = Mathf.Clamp(xRotation, -verticalLookLimit, verticalLookLimit);
 
         playerCamera.localRotation = Quaternion.Euler(xRotation, 0, 0);
+    }
+
+    private void HandleInteract()
+    {
+        if (interactAction.IsPressed())
+    {
+        // จุดที่ 1: เช็กว่าปุ่มทำงานไหม
+        Debug.Log("Interact key PRESSED!"); 
+
+        Ray ray = playerCameraComponent.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
+        RaycastHit hit;
+
+        // (แถม) ทำให้เราเห็นเส้น Ray ในหน้าต่าง Scene ด้วย
+        Debug.DrawRay(ray.origin, ray.direction * interactDistance, Color.red, 2.0f);
+
+        if (Physics.Raycast(ray, out hit, interactDistance))
+        {
+            // จุดที่ 2: เช็กว่า Ray ชนอะไร
+            Debug.Log("Ray HIT: " + hit.collider.name); 
+
+            ArcadeCabinet cabinet = hit.collider.GetComponent<ArcadeCabinet>();
+            if (cabinet != null)
+            {
+                // จุดที่ 3: เช็กว่าเจอสคริปต์
+                Debug.Log("Found ArcadeCabinet script!"); 
+                cabinet.StartPlaying(this);
+            }
+        }
+    }
     }
 }
