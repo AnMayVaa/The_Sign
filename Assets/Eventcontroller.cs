@@ -1,76 +1,68 @@
-// SceneEventController.cs
+// Assets/Scripts/EventController.cs
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 
-public class SceneEventController : MonoBehaviour
+[System.Serializable]
+public class EventStep
 {
-    [Header("Player & Start Point")]
-    [SerializeField] private Transform player;         // ลาก Player มาวาง หรือปล่อยว่างให้หา tag = Player
-    [SerializeField] private Transform startPoint;     // จุดเริ่มเกม (ตั้งตำแหน่ง/หมุนได้ในซีน)
-    [SerializeField] private bool applyStartRotation = true;
+    [Tooltip("เช่น ActiveEvent1, ActiveEvent2")]
+    public string stepId = "ActiveEvent1";
 
-    void Awake()
+    [Tooltip("ต้องมีไอเท็มอะไรถึงจะผ่านขั้นนี้ (เว้นว่าง = ไม่ต้องใช้ไอเท็ม)")]
+    public string requiredItemKey = "";
+
+    [Tooltip("ฟังก์ชันที่จะเรียกเมื่อผ่านขั้นนี้ (ลากใน Inspector)")]
+    public UnityEvent onActivated;   // <— ช่องนี้จะโผล่ใน Inspector แน่นอน
+
+    [HideInInspector] public bool completed;
+}
+
+[AddComponentMenu("Game/Event Controller (Sequential)")]
+public class EventController : MonoBehaviour
+{
+    [Header("เรียงขั้นตามลำดับ (แก้ใน Inspector)")]
+    public List<EventStep> steps = new List<EventStep>
     {
-        // ถ้าไม่ได้อ้างอิง player ไว้ ให้ลองหาในซีนด้วย Tag
-        if (!player)
-        {
-            var go = GameObject.FindGameObjectWithTag("Player");
-            if (go) player = go.transform;
-        }
+        new EventStep { stepId = "ActiveEvent1", requiredItemKey = "glasses"  },
+        new EventStep { stepId = "ActiveEvent2", requiredItemKey = "earmuffs" },
+    };
 
-        // เทเลพอร์ตผู้เล่นไปจุดเริ่มเกม
-        if (player && startPoint)
-        {
-            TeleportTo(player, startPoint.position, applyStartRotation ? startPoint.rotation : player.rotation);
-        }
+    [SerializeField, Tooltip("เริ่มตรวจจากขั้นที่เท่าไหร่ (ปกติ 0)")]
+    private int currentIndex = 0;
 
-        // ตรงนี้เผื่อไว้สำหรับ init อื่น ๆ ในซีน (ระบบเซฟ/โหลด, ลงทะเบียนอีเวนต์ ฯลฯ)
-        // Example: SaveSystem.LoadOrNew();  // ถ้าคุณมีระบบเซฟแล้วค่อยเปิดใช้
-    }
+    public int CurrentIndex => currentIndex;
+    public bool IsAllDone => currentIndex >= steps.Count;
 
     /// <summary>
-    /// เทเลพอร์ตอย่างปลอดภัย (รองรับ CharacterController / Rigidbody)
+    /// พยายามผ่าน "ขั้นปัจจุบัน"
     /// </summary>
-    private void TeleportTo(Transform target, Vector3 pos, Quaternion rot)
+    public bool TryActivateCurrentStep()
     {
-        if (!target) return;
+        if (IsAllDone) return false;
 
-        // ถ้ามี CharacterController ปิดก่อนกันแรงชน
-        var cc = target.GetComponent<CharacterController>();
-        if (cc)
+        var step = steps[currentIndex];
+
+        // ตรวจไอเท็มถ้ามีระบุ
+        if (!string.IsNullOrWhiteSpace(step.requiredItemKey))
         {
-            bool wasEnabled = cc.enabled;
-            cc.enabled = false;
-            target.SetPositionAndRotation(pos, rot);
-            cc.enabled = wasEnabled;
-            return;
+            if (PlayerStats.Instance == null) return false;
+            if (!PlayerStats.Instance.HasItem(step.requiredItemKey)) return false;
         }
 
-        // ถ้ามี Rigidbody ใช้ MovePosition/MoveRotation เพื่อความนุ่มนวล
-        var rb = target.GetComponent<Rigidbody>();
-        if (rb && !rb.isKinematic)
-        {
-            rb.position = pos;
-            rb.rotation = rot;
-        }
-        else if (rb && rb.isKinematic)
-        {
-            rb.MovePosition(pos);
-            rb.MoveRotation(rot);
-        }
-        else
-        {
-            target.SetPositionAndRotation(pos, rot);
-        }
-    }
+        // ผ่านขั้นนี้
+        step.completed = true;
 
-#if UNITY_EDITOR
-    // ช่วยให้เห็นจุดเริ่มเกมใน Scene View
-    void OnDrawGizmosSelected()
-    {
-        if (!startPoint) return;
-        Gizmos.color = Color.cyan;
-        Gizmos.DrawWireSphere(startPoint.position, 0.3f);
-        Gizmos.DrawLine(startPoint.position, startPoint.position + startPoint.forward * 1.0f);
-    }
+        // (ออปชัน) แจ้งสัญญาณออกไป ถ้ามี GameSignals
+#if GAME_SIGNALS
+        GameSignals.SetEventFlag(step.stepId, true);
 #endif
+
+        // เรียก UnityEvent ที่ลากไว้
+        step.onActivated?.Invoke();
+
+        // ไปขั้นถัดไป
+        currentIndex++;
+        return true;
+    }
 }
